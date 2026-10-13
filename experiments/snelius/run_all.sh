@@ -5,6 +5,9 @@
 #   experiments/snelius/run_all.sh [--dry-run] [--yes] [--gate auto|manual] [--p3]
 #        [--max-parallel G] [--time HH:MM:SS] [--rounds R] [--e0-time HH:MM:SS]
 #        [--max-attempts N] [--partition P] [--mps] [--no-profile]
+#        [--exps E1,E4,...] [--no-e0fid] [--idle-wait SECONDS] [--e0-slices N]
+#        [--e0pack-time T] [--bootstrap-time T] [--profile-time T] [--profile-reps "0 1 2"]
+#        [--max-gpu-hours H]   # refuse to submit if the upper bound exceeds H
 #   experiments/snelius/run_all.sh --status     # progress of every stage
 #   experiments/snelius/run_all.sh --cancel     # cancel the jobs of the last submission
 #
@@ -30,9 +33,11 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."   # Experiments/
 source experiments/snelius/env.sh
 
-GATE=auto; P3=0; DRY=0; YES=0; MPS=0; PROFILE=1; ACTION=submit
+GATE=auto; P3=0; DRY=0; YES=0; MPS=0; PROFILE=1; ACTION=submit; EXPS_OPT=""; NO_FID=0
+IDLE_WAIT="${CDX_IDLE_WAIT_S:-900}"
 G="$CDX_MAX_PARALLEL"; PART="$CDX_PARTITION"
 T_MAIN="${CDX_TIME_WORKER:-12:00:00}"; T_E0="${CDX_TIME_E0:-04:00:00}"
+T_E0PACK=""; T_BOOT=03:00:00; T_PROF=04:00:00; PROF_REPS="0 1 2"; E0_SLICES_OPT=""; MAX_GPUH=""
 ROUNDS="${CDX_ROUNDS:-4}"; MAX_ATT="${CDX_MAX_ATTEMPTS:-3}"
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -46,6 +51,15 @@ while [ $# -gt 0 ]; do
         --partition) PART="$2"; shift 2;;
         --mps) MPS=1; shift;;
         --no-profile) PROFILE=0; shift;;
+        --exps) EXPS_OPT="$2"; shift 2;;
+        --no-e0fid) NO_FID=1; shift;;
+        --idle-wait) IDLE_WAIT="$2"; shift 2;;
+        --e0-slices) E0_SLICES_OPT="$2"; shift 2;;
+        --e0pack-time) T_E0PACK="$2"; shift 2;;
+        --bootstrap-time) T_BOOT="$2"; shift 2;;
+        --profile-time) T_PROF="$2"; shift 2;;
+        --profile-reps) PROF_REPS="$2"; shift 2;;
+        --max-gpu-hours) MAX_GPUH="$2"; shift 2;;
         --dry-run) DRY=1; shift;;
         --yes) YES=1; shift;;
         --status) ACTION=status; shift;;
@@ -93,7 +107,7 @@ sys.exit(any(not dataset_path(t).exists() for t in TASKS))" || {
         echo "== downloading DSRL datasets into $DSRL_DATASET_DIR"
         python -m experiments.common.data --download --tasks all; }
     python -m experiments.snelius.pipeline plan --out "$CDX_RESULTS" --json "$PLAN_JSON" \
-        $([ $P3 = 1 ] && echo --p3)
+        $([ $P3 = 1 ] && echo --p3) ${EXPS_OPT:+--exps "$EXPS_OPT"}
     # a previous failed gate is re-evaluated after E0 runs again
     [ -f "$CDX_RESULTS/decisions.yaml" ] || rm -f "$CDX_RESULTS/GATE_FAILED"
     pj() { python -c "import json,sys; v=json.load(open('$PLAN_JSON'))['$1']; \
@@ -104,11 +118,15 @@ print(' '.join(map(str,v)) if isinstance(v,list) else (int(v) if isinstance(v,bo
 else
     echo "venv not built yet: everything is scheduled; bootstrap builds the venv first"
     BOOT=1; E0_SLICES="$G"; E0PACK="1 3 6 9"; E0FID=1; MAIN_LEFT=1; PROF=1
-    MAIN_EXPS="E6full E1 E4 E2 E3 E5 E7 E8 E9$([ $P3 = 1 ] && echo ' E6long E7ext E11')"
+    MAIN_EXPS="E6full E1 E4 E2 E3 E5 E7 E8 E9$([ $P3 = 1 ] && echo ' E6long E7ext E11' || true)"
+    [ -n "$EXPS_OPT" ] && MAIN_EXPS="${EXPS_OPT//,/ }"
 fi
 rm -f "$PLAN_JSON"
 [ "$PROFILE" = 1 ] || PROF=0
+[ "$NO_FID" = 1 ] && E0FID=0
 [ "$E0_SLICES" -gt "$G" ] && E0_SLICES="$G"
+if [ -n "$E0_SLICES_OPT" ] && [ "$E0_SLICES" -gt "$E0_SLICES_OPT" ]; then E0_SLICES="$E0_SLICES_OPT"; fi
+T_E0PACK="${T_E0PACK:-$T_E0}"
 
 # ---------------------------------------------------------------- the plan
 secs() { awk -F'[-:]' '{ if (NF==4) print $1*86400+$2*3600+$3*60+$4;
@@ -123,12 +141,12 @@ line() {  # stage, jobs, gpus per job, time
 echo "=================================================================="
 echo "partition $PART   results $CDX_RESULTS   gate $GATE   max parallel slices $G"
 echo "packs: seq ${CDX_PACK_SEQ} (or the E0pack decision)  mlp ${CDX_PACK_MLP}  eval ${CDX_PACK_EVAL}"
-[ "$BOOT" = 1 ] && line "bootstrap" 1 1 03:00:00
+[ "$BOOT" = 1 ] && line "bootstrap" 1 1 "$T_BOOT"
 [ "$E0_SLICES" -gt 0 ] && line "E0 workers (E0, E0prec, E0tune)" "$E0_SLICES" 1 "$T_E0"
-for p in $E0PACK; do line "E0pack p$p" 1 1 "$T_E0"; done
+for p in $E0PACK; do line "E0pack p$p" 1 1 "$T_E0PACK"; done
 [ "$E0FID" = 1 ] && line "E0fid (OSRL script)" 1 1 "$CDX_TIME_OSRL"
 [ "$MAIN_LEFT" -gt 0 ] && line "main workers ($ROUNDS rounds x $G)" $(( ROUNDS * G )) 1 "$T_MAIN"
-[ "$PROF" = 1 ] && line "E6 profiling (exclusive node)" 1 4 04:00:00
+[ "$PROF" = 1 ] && line "E6 profiling (exclusive node, reps: $PROF_REPS)" 1 4 "$T_PROF"
 line "finalize (analysis)" 1 1 01:00:00
 echo "  upper bound total: $TOTAL GPU-hours (charged: only the time actually used)"
 if [ -n "${CDX_SBU_PER_GPU_HOUR:-}" ]; then
@@ -136,6 +154,12 @@ if [ -n "${CDX_SBU_PER_GPU_HOUR:-}" ]; then
 fi
 echo "  main queue: $MAIN_EXPS"
 echo "=================================================================="
+if [ -n "$MAX_GPUH" ] && awk -v t="$TOTAL" -v m="$MAX_GPUH" 'BEGIN { exit !(t > m) }'; then
+    echo "upper bound $TOTAL GPU-h exceeds --max-gpu-hours $MAX_GPUH: lower --max-parallel,"
+    echo "--rounds or --time (or skip stages), then try again. Nothing submitted."
+    exit 1
+fi
+[ -n "$MAX_GPUH" ] && echo "  within --max-gpu-hours $MAX_GPUH: guaranteed (every job is capped by its --time)"
 if [ "$DRY" = 1 ]; then echo "(dry run: nothing submitted)"; exit 0; fi
 if [ "$YES" != 1 ]; then
     read -r -p "submit? [y/N] " ans
@@ -159,11 +183,11 @@ dep() {  # joins non-empty dependency specs; prints nothing when there are none
     for x in "$@"; do if [ -n "$x" ]; then d="${d:+$d,}$x"; fi; done
     if [ -n "$d" ]; then echo "--dependency=$d"; fi
 }
-WEXP=(--export=ALL,USE_MPS="$MPS",CDX_MAX_ATTEMPTS="$MAX_ATT",CDX_ROOT="$CDX_ROOT")
+WEXP=(--export=ALL,USE_MPS="$MPS",CDX_MAX_ATTEMPTS="$MAX_ATT",CDX_ROOT="$CDX_ROOT",CDX_IDLE_WAIT_S="$IDLE_WAIT")
 
 BOOT_ID=""; AFTER_BOOT=""
 if [ "$BOOT" = 1 ]; then
-    BOOT_ID=$(sub bootstrap experiments/snelius/bootstrap.sbatch)
+    BOOT_ID=$(sub bootstrap --time="$T_BOOT" experiments/snelius/bootstrap.sbatch)
     AFTER_BOOT="afterok:$BOOT_ID"
 fi
 
@@ -175,7 +199,7 @@ if [ "$E0_SLICES" -gt 0 ]; then
 fi
 for p in $E0PACK; do
     E0_IDS+=("$(sub "e0pack_p$p" $(dep "$AFTER_BOOT") --job-name="cdx_E0pack_p$p" \
-        --time="$T_E0" "${WEXP[@]}",CDX_TIME_LIMIT_S="$(secs "$T_E0")" \
+        --time="$T_E0PACK" "${WEXP[@]}",CDX_TIME_LIMIT_S="$(secs "$T_E0PACK")" \
         experiments/snelius/worker.sbatch --exps E0pack --variants "p$p" --pack-seq "$p" \
         --gate off)")
 done
@@ -207,7 +231,8 @@ PROF_ID=""
 if [ "$PROF" = 1 ]; then
     first="${MAIN_IDS[0]:-}"
     PROF_ID=$(sub profile $(dep "$AFTER_BOOT" ${first:+afterany:$first} "$AFTER_E0") \
-        --export=ALL,CDX_ROOT="$CDX_ROOT" experiments/snelius/profile.sbatch)
+        --time="$T_PROF" --export=ALL,CDX_ROOT="$CDX_ROOT",REPS="$PROF_REPS" \
+        experiments/snelius/profile.sbatch)
 fi
 
 AFTER_ALL=""

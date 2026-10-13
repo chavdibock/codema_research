@@ -366,7 +366,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                    help="stop running runs this long before the job's time limit")
     p.add_argument("--max-attempts", type=int,
                    default=int(os.environ.get("CDX_MAX_ATTEMPTS", 3)))
-    p.add_argument("--idle-wait-s", type=float, default=900)
+    p.add_argument("--idle-wait-s", type=float,
+                   default=float(os.environ.get("CDX_IDLE_WAIT_S", 900)))
     p.add_argument("--log-dir", default="logs/runs")
     a = p.parse_args(argv)
 

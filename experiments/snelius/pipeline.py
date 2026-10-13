@@ -50,7 +50,24 @@ def slices_needed(exps: List[str], out: str, pack_seq: int, pack_mlp: int,
     return max(1, math.ceil(total)) if total else 0
 
 
-def plan(out: str, p3: bool) -> Dict[str, Any]:
+def check_exps(exps: List[str]) -> List[str]:
+    """Known experiment names only; warn when eval-only runs depend on an experiment that
+    is not in the list (they then wait for checkpoints that nobody trains)."""
+    from experiments.common.expdefs import EXPERIMENTS, get_exp
+
+    bad = [e for e in exps if e not in EXPERIMENTS or e.startswith("E0") or e == "E10"]
+    if bad:
+        raise SystemExit(f"--exps: not a main experiment: {bad} "
+                         f"(choose from {MAIN_EXPS + P3_EXPS})")
+    for e in exps:
+        for src, _, _ in get_exp(e).eval_sources.values():
+            if src not in exps:
+                print(f"WARNING: {e} evaluates {src} checkpoints but {src} is not in --exps "
+                      f"(fine only if {src} already finished)")
+    return exps
+
+
+def plan(out: str, p3: bool, exps: Optional[List[str]] = None) -> Dict[str, Any]:
     from experiments.snelius.decisions import DECISIONS_FILE, load_decisions
     from experiments.snelius.worker import GATE_FAILED
 
@@ -60,7 +77,7 @@ def plan(out: str, p3: bool) -> Dict[str, Any]:
         with open(o / "bootstrap.json") as f:
             boot = json.load(f)
     dec = load_decisions(out)
-    main_exps = MAIN_EXPS + (P3_EXPS if p3 else [])
+    main_exps = check_exps(exps) if exps else MAIN_EXPS + (P3_EXPS if p3 else [])
     env = os.environ
     pack_seq = int((dec or {}).get("pack_seq") or env.get("CDX_PACK_SEQ", 6))
     pm, pe = int(env.get("CDX_PACK_MLP", 12)), int(env.get("CDX_PACK_EVAL", 4))
@@ -101,8 +118,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--out", default=os.environ.get("CDX_RESULTS", "results"))
     ap.add_argument("--p3", action="store_true")
     ap.add_argument("--json", default=None, help="plan: also write the plan here")
+    ap.add_argument("--exps", default="", help="comma-separated main experiments")
     a = ap.parse_args(argv)
-    p = plan(a.out, a.p3)
+    p = plan(a.out, a.p3, [e for e in a.exps.split(",") if e] or None)
     print_table(p)
     if a.cmd == "plan" and a.json:
         Path(a.json).write_text(json.dumps({k: v for k, v in p.items() if k != "table"}))
