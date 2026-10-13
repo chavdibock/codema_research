@@ -351,6 +351,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--models", nargs="*")
     p.add_argument("--tasks", nargs="*")
     p.add_argument("--variants", nargs="*")
+    p.add_argument("--exclude-models", nargs="*", default=[],
+                   help="skip these models (not in E6full: efficiency is measured for all)")
     p.add_argument("--out", default=os.environ.get("CDX_RESULTS", "results"))
     p.add_argument("--gate", choices=["auto", "require", "off"], default="off")
     p.add_argument("--pack-seq", type=int, default=None,
@@ -387,6 +389,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     for exp in a.exps:
         runs += enumerate_runs(exp, models=a.models or None, tasks=a.tasks or None,
                                variants=a.variants or None)
+    runs = [r for r in runs if r.model not in a.exclude_models or r.exp in DEDICATED_EXPS]
     # the time limit counts from the job start (set by worker.sbatch), not from here
     start = float(os.environ.get("CDX_JOB_T0", time.time()))
     if a.time_limit_s:

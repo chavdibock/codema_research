@@ -8,6 +8,7 @@
 #        [--exps E1,E4,...] [--no-e0fid] [--idle-wait SECONDS] [--e0-slices N]
 #        [--e0pack-time T] [--bootstrap-time T] [--profile-time T] [--profile-reps "0 1 2"]
 #        [--max-gpu-hours H]   # refuse to submit if the upper bound exceeds H
+#        [--skip-models cdt]   # not trained in the main experiments (still in E0, E6)
 #   experiments/snelius/run_all.sh --status     # progress of every stage
 #   experiments/snelius/run_all.sh --cancel     # cancel the jobs of the last submission
 #
@@ -34,7 +35,7 @@ cd "$(dirname "$0")/../.."   # Experiments/
 source experiments/snelius/env.sh
 
 GATE=auto; P3=0; DRY=0; YES=0; MPS=0; PROFILE=1; ACTION=submit; EXPS_OPT=""; NO_FID=0
-IDLE_WAIT="${CDX_IDLE_WAIT_S:-900}"
+IDLE_WAIT="${CDX_IDLE_WAIT_S:-900}"; SKIP_MODELS=""
 G="$CDX_MAX_PARALLEL"; PART="$CDX_PARTITION"
 T_MAIN="${CDX_TIME_WORKER:-12:00:00}"; T_E0="${CDX_TIME_E0:-04:00:00}"
 T_E0PACK=""; T_BOOT=03:00:00; T_PROF=04:00:00; PROF_REPS="0 1 2"; E0_SLICES_OPT=""; MAX_GPUH=""
@@ -60,6 +61,7 @@ while [ $# -gt 0 ]; do
         --profile-time) T_PROF="$2"; shift 2;;
         --profile-reps) PROF_REPS="$2"; shift 2;;
         --max-gpu-hours) MAX_GPUH="$2"; shift 2;;
+        --skip-models) SKIP_MODELS="$2"; shift 2;;
         --dry-run) DRY=1; shift;;
         --yes) YES=1; shift;;
         --status) ACTION=status; shift;;
@@ -82,7 +84,8 @@ if [ "$HAVE_VENV" = 1 ]; then cdx_activate; fi
 
 if [ "$ACTION" = status ]; then
     [ "$HAVE_VENV" = 1 ] || { echo "venv not built yet"; exit 0; }
-    python -m experiments.snelius.pipeline status --out "$CDX_RESULTS" $([ $P3 = 1 ] && echo --p3)
+    python -m experiments.snelius.pipeline status --out "$CDX_RESULTS" $([ $P3 = 1 ] && echo --p3) \
+        ${SKIP_MODELS:+--exclude-models "$SKIP_MODELS"}
     echo; squeue -u "$USER" -h -o "%.18i %.22j %.9T %.10M %.10l %R" | grep -E "cdx_" || echo "no cdx jobs queued"
     [ -f "$CDX_RESULTS/GATE_FAILED" ] && echo "E0 GATE FAILED: $CDX_RESULTS/GATE_FAILED"
     exit 0
@@ -107,7 +110,8 @@ sys.exit(any(not dataset_path(t).exists() for t in TASKS))" || {
         echo "== downloading DSRL datasets into $DSRL_DATASET_DIR"
         python -m experiments.common.data --download --tasks all; }
     python -m experiments.snelius.pipeline plan --out "$CDX_RESULTS" --json "$PLAN_JSON" \
-        $([ $P3 = 1 ] && echo --p3) ${EXPS_OPT:+--exps "$EXPS_OPT"}
+        $([ $P3 = 1 ] && echo --p3) ${EXPS_OPT:+--exps "$EXPS_OPT"} \
+        ${SKIP_MODELS:+--exclude-models "$SKIP_MODELS"}
     # a previous failed gate is re-evaluated after E0 runs again
     [ -f "$CDX_RESULTS/decisions.yaml" ] || rm -f "$CDX_RESULTS/GATE_FAILED"
     pj() { python -c "import json,sys; v=json.load(open('$PLAN_JSON'))['$1']; \
@@ -153,6 +157,7 @@ if [ -n "${CDX_SBU_PER_GPU_HOUR:-}" ]; then
     awk -v e="$TOTAL" -v r="$CDX_SBU_PER_GPU_HOUR" 'BEGIN { printf "  upper bound SBU  : %.0f\n", e * r }'
 fi
 echo "  main queue: $MAIN_EXPS"
+[ -n "$SKIP_MODELS" ] && echo "  skipped models (still in E0 and E6): ${SKIP_MODELS//,/ }"
 echo "=================================================================="
 if [ -n "$MAX_GPUH" ] && awk -v t="$TOTAL" -v m="$MAX_GPUH" 'BEGIN { exit !(t > m) }'; then
     echo "upper bound $TOTAL GPU-h exceeds --max-gpu-hours $MAX_GPUH: lower --max-parallel,"
@@ -222,7 +227,8 @@ if [ "$MAIN_LEFT" -gt 0 ]; then
         h=(); [ "$r" = 1 ] && h=("${HOLD[@]}")
         prev=$(sub "main_r$r" $d "${h[@]}" --job-name=cdx_main --time="$T_MAIN" \
             --array=0-$(( G - 1 )) "${WEXP[@]}",CDX_TIME_LIMIT_S="$(secs "$T_MAIN")" \
-            experiments/snelius/worker.sbatch --exps $MAIN_EXPS --gate "$GATEMODE")
+            experiments/snelius/worker.sbatch --exps $MAIN_EXPS --gate "$GATEMODE" \
+            ${SKIP_MODELS:+--exclude-models ${SKIP_MODELS//,/ }})
         MAIN_IDS+=("$prev")
     done
 fi
@@ -231,7 +237,7 @@ PROF_ID=""
 if [ "$PROF" = 1 ]; then
     first="${MAIN_IDS[0]:-}"
     PROF_ID=$(sub profile $(dep "$AFTER_BOOT" ${first:+afterany:$first} "$AFTER_E0") \
-        --time="$T_PROF" --export=ALL,CDX_ROOT="$CDX_ROOT",REPS="$PROF_REPS" \
+        --time="$T_PROF" --export=ALL,CDX_ROOT="$CDX_ROOT",REPS="$PROF_REPS",ALLOW_FRESH="${SKIP_MODELS:+1}" \
         experiments/snelius/profile.sbatch)
 fi
 
@@ -240,7 +246,7 @@ for id in "${MAIN_IDS[@]}" $PROF_ID $FID_ID "${E0_IDS[@]}"; do
     AFTER_ALL="${AFTER_ALL:+$AFTER_ALL,}afterany:$id"
 done
 sub finalize ${AFTER_ALL:+--dependency=$AFTER_ALL} \
-    --export=ALL,CDX_ROOT="$CDX_ROOT",P3="$([ $P3 = 1 ] && echo 1)" \
+    --export=ALL,CDX_ROOT="$CDX_ROOT",P3="$([ $P3 = 1 ] && echo 1)",SKIP_MODELS="$SKIP_MODELS" \
     experiments/snelius/finalize.sbatch > /dev/null
 
 echo

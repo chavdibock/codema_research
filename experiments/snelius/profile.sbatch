@@ -25,6 +25,9 @@ if [ ! -f "$CDX_RESULTS/decisions.yaml" ]; then
     echo "E0 gate not passed (no decisions.yaml): nothing to profile"; exit 0
 fi
 P="python -m experiments.common.profiling --e6 --ckpt-from E1 --out $CDX_RESULTS"
+# models without an E1 checkpoint (skipped with run_all.sh --skip-models) are timed with
+# freshly initialized weights; speed and memory do not depend on the trained values
+[ -n "${ALLOW_FRESH:-}" ] && P="$P --allow-fresh"
 
 for rep in $REPS; do
     # GPU: size, M1 (fp32 + bf16, batch 2048/256), M3; M2/M4 on every task

@@ -12,7 +12,8 @@ source "${CDX_ROOT:-$SLURM_SUBMIT_DIR}/experiments/snelius/env.sh"
 cdx_activate
 SUMMARY="${CDX_SUMMARY:-$CDX_PROJECT/summary}"
 mkdir -p "$SUMMARY"
-python -m experiments.snelius.pipeline status --out "$CDX_RESULTS" ${P3:+--p3} | tee "$SUMMARY/status.txt"
+python -m experiments.snelius.pipeline status --out "$CDX_RESULTS" ${P3:+--p3} \
+    ${SKIP_MODELS:+--exclude-models "$SKIP_MODELS"} | tee "$SUMMARY/status.txt"
 python -m experiments.common.sanity --e0-report --out "$CDX_RESULTS" > "$SUMMARY/e0_report.txt" 2>&1
 find "$CDX_RESULTS" -name FAILED -path '*/seed_*' | sort > "$SUMMARY/failed_runs.txt"
 echo "failed runs: $(wc -l < "$SUMMARY/failed_runs.txt") (list in $SUMMARY/failed_runs.txt)"

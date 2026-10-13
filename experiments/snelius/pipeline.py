@@ -25,8 +25,16 @@ MAIN_EXPS = ["E6full", "E1", "E4", "E2", "E3", "E5", "E7", "E8", "E9"]
 P3_EXPS = ["E6long", "E7ext", "E11"]
 
 
-def counts(exp: str, out: str, variants: Optional[List[str]] = None) -> Dict[str, Any]:
-    runs = enumerate_runs(exp, variants=variants)
+def _runs(exp: str, variants: Optional[List[str]] = None, exclude: tuple = ()):
+    from experiments.snelius.worker import DEDICATED_EXPS
+
+    return [r for r in enumerate_runs(exp, variants=variants)
+            if r.model not in exclude or exp in DEDICATED_EXPS or exp.startswith("E0")]
+
+
+def counts(exp: str, out: str, variants: Optional[List[str]] = None,
+           exclude: tuple = ()) -> Dict[str, Any]:
+    runs = _runs(exp, variants, exclude)
     done = sum(is_done(run_dir_for(out, r.exp, r.task, r.model, r.variant, r.seed))
                for r in runs)
     kinds: Dict[str, int] = {}
@@ -37,14 +45,14 @@ def counts(exp: str, out: str, variants: Optional[List[str]] = None) -> Dict[str
 
 
 def slices_needed(exps: List[str], out: str, pack_seq: int, pack_mlp: int,
-                  pack_eval: int) -> int:
+                  pack_eval: int, exclude: tuple = ()) -> int:
     """GPU slices that would keep every remaining run of these experiments busy at once."""
     from experiments.snelius.worker import Packs
 
     packs = Packs(pack_seq, pack_mlp, pack_eval)
     total = 0.0
     for exp in exps:
-        for r in enumerate_runs(exp):
+        for r in _runs(exp, exclude=exclude):
             if not is_done(run_dir_for(out, r.exp, r.task, r.model, r.variant, r.seed)):
                 total += packs.share(r)
     return max(1, math.ceil(total)) if total else 0
@@ -67,7 +75,8 @@ def check_exps(exps: List[str]) -> List[str]:
     return exps
 
 
-def plan(out: str, p3: bool, exps: Optional[List[str]] = None) -> Dict[str, Any]:
+def plan(out: str, p3: bool, exps: Optional[List[str]] = None,
+         exclude: tuple = ()) -> Dict[str, Any]:
     from experiments.snelius.decisions import DECISIONS_FILE, load_decisions
     from experiments.snelius.worker import GATE_FAILED
 
@@ -81,7 +90,7 @@ def plan(out: str, p3: bool, exps: Optional[List[str]] = None) -> Dict[str, Any]
     env = os.environ
     pack_seq = int((dec or {}).get("pack_seq") or env.get("CDX_PACK_SEQ", 6))
     pm, pe = int(env.get("CDX_PACK_MLP", 12)), int(env.get("CDX_PACK_EVAL", 4))
-    table = [counts(e, out) for e in E0_EXPS + ["E0pack", "E0fid"] + main_exps]
+    table = [counts(e, out, exclude=exclude) for e in E0_EXPS + ["E0pack", "E0fid"] + main_exps]
     e0_left = sum(t["left"] for t in table if t["exp"] in E0_EXPS)
     pack_left = [p for p in E0PACK_SIZES if counts("E0pack", out, [f"p{p}"])["left"]]
     return {
@@ -93,7 +102,7 @@ def plan(out: str, p3: bool, exps: Optional[List[str]] = None) -> Dict[str, Any]
         "e0pack_sizes": pack_left if not dec else [],
         "e0fid_needed": any(t["left"] for t in table if t["exp"] == "E0fid"),
         "main_exps": main_exps,
-        "main_slices": slices_needed(main_exps, out, pack_seq, pm, pe),
+        "main_slices": slices_needed(main_exps, out, pack_seq, pm, pe, exclude),
         "main_left": sum(t["left"] for t in table if t["exp"] in main_exps),
         "profile_needed": not (o / "E6" / "PROFILE_DONE").exists(),
         "e0_left": e0_left,
@@ -119,8 +128,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--p3", action="store_true")
     ap.add_argument("--json", default=None, help="plan: also write the plan here")
     ap.add_argument("--exps", default="", help="comma-separated main experiments")
+    ap.add_argument("--exclude-models", default="", help="comma-separated models to skip")
     a = ap.parse_args(argv)
-    p = plan(a.out, a.p3, [e for e in a.exps.split(",") if e] or None)
+    excl = tuple(m for m in a.exclude_models.split(",") if m)
+    p = plan(a.out, a.p3, [e for e in a.exps.split(",") if e] or None, excl)
+    if excl:
+        print(f"skipped models (except E0 and E6full): {', '.join(excl)}")
     print_table(p)
     if a.cmd == "plan" and a.json:
         Path(a.json).write_text(json.dumps({k: v for k, v in p.items() if k != "table"}))
