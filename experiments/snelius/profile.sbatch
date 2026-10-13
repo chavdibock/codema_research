@@ -21,6 +21,9 @@ TRAIN_TASKS=${TRAIN_TASKS:-"OfflineCarCircle-v0"}
 REPS=${REPS:-"0 1 2"}
 export CUDA_VISIBLE_DEVICES=0   # one fixed GPU of the exclusive node
 export OMP_NUM_THREADS=8
+if [ ! -f "$CDX_RESULTS/decisions.yaml" ]; then
+    echo "E0 gate not passed (no decisions.yaml): nothing to profile"; exit 0
+fi
 P="python -m experiments.common.profiling --e6 --ckpt-from E1 --out $CDX_RESULTS"
 
 for rep in $REPS; do
@@ -39,3 +42,4 @@ for rep in $REPS; do
         --allow-fresh --batches
 done
 echo "efficiency rows: $(wc -l < "$CDX_RESULTS/E6/efficiency.csv")"
+date > "$CDX_RESULTS/E6/PROFILE_DONE"

@@ -42,10 +42,15 @@ export MPLBACKEND=Agg
 export PYTHONUNBUFFERED=1
 
 cdx_activate() {
+    # Lmod and venv activate scripts can reference unset variables: run them without
+    # `set -u` (the job scripts use it) and restore the caller's setting afterwards
+    local had_u=0
+    case $- in *u*) had_u=1; set +u;; esac
     # shellcheck disable=SC2086
     module purge >/dev/null 2>&1 || true
     for m in $CDX_MODULES; do module load "$m"; done
     # shellcheck disable=SC1091
     source "$CDX_VENV/bin/activate"
+    [ "$had_u" = 1 ] && set -u
     cd "$CDX_ROOT" || exit 1
 }

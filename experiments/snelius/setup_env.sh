@@ -10,6 +10,7 @@
 set -euo pipefail
 source "$(dirname "$0")/env.sh"
 
+set +u  # Lmod and venv activate scripts may reference unset variables
 module purge || true
 for m in $CDX_MODULES; do module load "$m"; done
 echo "loaded modules: ${LOADEDMODULES:-?}"
@@ -20,6 +21,7 @@ if [ ! -d "$CDX_VENV" ]; then
 fi
 # shellcheck disable=SC1091
 source "$CDX_VENV/bin/activate"
+set -u
 cd "$CDX_ROOT"
 pip install --upgrade pip wheel setuptools packaging ninja
 
