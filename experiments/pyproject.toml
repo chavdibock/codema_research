@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cdx-experiments"
+version = "1.0.0"
+description = "Lightweight alternatives to CDT: shared offline safe RL experiment pipeline"
+requires-python = ">=3.10"
+# Dependencies are pinned in requirements-snelius.txt (OSRL is installed with --no-deps).
+dependencies = []
+
+[tool.setuptools]
+# this directory *is* the `experiments` package
+package-dir = { "experiments" = "." }
+packages = [
+    "experiments", "experiments.common", "experiments.cdt", "experiments.cdt_light",
+    "experiments.cdmamba", "experiments.cdconvformer", "experiments.baselines",
+    "experiments.snelius", "experiments.analysis", "experiments.tests",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "cuda: needs a CUDA GPU (skipped otherwise)",
+    "mamba_cuda: needs the official Mamba-3 CUDA kernels",
+    "slow: takes more than a few seconds",
+]
+filterwarnings = ["ignore::DeprecationWarning", "ignore::UserWarning"]
+
+[tool.yapf]
+based_on_style = "pep8"
+column_limit = 100

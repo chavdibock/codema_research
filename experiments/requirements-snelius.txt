@@ -1,0 +1,43 @@
+# Snelius environment (spec §8.1). Install with experiments/snelius/setup_env.sh:
+#   pip install -r experiments/requirements-snelius.txt \
+#       --extra-index-url https://download.pytorch.org/whl/cu128
+#   pip install -e OSRL --no-deps          # OSRL's own pins (torch~=1.13) are ignored
+#   MAMBA_FORCE_BUILD=TRUE pip install --no-build-isolation mamba-ssm==2.3.2.post1
+#
+# VERIFY on Snelius: these pins were chosen from the mamba_ssm 2.3.2.post1 sdist
+# (requires triton>=3.5.0, tilelang==0.1.8, apache-tvm-ffi<=0.1.9) and checked only on
+# a local CPU install; the GPU stack has not been built here.
+
+# --- deep learning stack (torch 2.9 ships triton 3.5; CUDA 12.8 wheels run on A100)
+torch==2.9.1
+triton>=3.5.0
+einops>=0.8
+# mamba-ssm==2.3.2.post1      # built from source by setup_env.sh (Mamba-3 lives in
+#                               mamba_ssm.modules.mamba3, first released in 2.3.x)
+# causal-conv1d>=1.4.0        # optional (Mamba-3 has no short convolution)
+
+# --- OSRL's real dependencies (installed explicitly, OSRL itself with --no-deps)
+dsrl==0.1.0
+fast-safe-rl==0.1.0
+bullet-safety-gym==1.4.0
+gymnasium==0.28.1           # bullet-safety-gym 1.4.0 requires gymnasium~=0.28.1
+pybullet>=3.2.5
+pyrallis==0.3.1
+OApackage==2.7.6            # needs swig; its build failed locally, 2.7.20 works with numpy 1.26
+swig
+h5py>=3.8
+numba>=0.57
+easy_runner==0.1.0
+numpy>=1.24,<2              # gymnasium 0.28 is not numpy-2 safe
+scipy>=1.10
+pyyaml>=6.0
+tqdm>=4.66
+tensorboard                 # imported by fsrl.utils
+wandb                       # imported by fsrl.utils; used offline only
+
+# --- our pipeline and analysis
+pandas>=2.0
+pyarrow>=14,<19            # pyarrow 19+ needs numpy 2 (verified locally: 18.1.0 + numpy 1.26 ok)
+matplotlib>=3.7
+psutil>=5.9
+pytest>=7.4

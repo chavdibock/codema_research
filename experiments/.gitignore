@@ -1,0 +1,30 @@
+# results, checkpoints, logs, datasets, caches
+results/
+summary/
+cache/
+logs/
+manifests/*.txt
+manifests/submitted/
+*.pt
+*.ckpt
+*.hdf5
+*.h5
+*.npz
+dsrl_datasets/
+wandb/
+env_report.txt
+pip-freeze-snelius.txt
+*.sif
+
+# virtual environments
+.venv/
+venv/
+venvs/
+env/
+
+# python / tooling
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/

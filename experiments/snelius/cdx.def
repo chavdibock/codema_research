@@ -1,0 +1,21 @@
+Bootstrap: docker
+From: nvcr.io/nvidia/pytorch:25.10-py3
+
+# Fallback environment if building mamba_ssm in the venv fails (spec §8.1).
+# Build (on a machine with apptainer + network):  apptainer build cdx.sif cdx.def
+# Use:  apptainer exec --nv --bind $CDX_PROJECT cdx.sif bash -c "cd Experiments && ..."
+# NOTE: VERIFY the base image tag; it must ship torch with Triton >= 3.5 (mamba_ssm 2.3.2).
+
+%files
+    experiments/requirements-snelius.txt /opt/requirements-snelius.txt
+
+%post
+    # keep the image's CUDA-matched torch/triton; install everything else
+    grep -v -E '^(torch|triton)\b' /opt/requirements-snelius.txt > /opt/req-notorch.txt
+    pip install --no-cache-dir -r /opt/req-notorch.txt
+    MAMBA_FORCE_BUILD=TRUE pip install --no-cache-dir --no-build-isolation mamba-ssm==2.3.2.post1
+    pip install --no-cache-dir --no-build-isolation "causal-conv1d>=1.4.0" || true
+
+%environment
+    export WANDB_MODE=offline
+    export MPLBACKEND=Agg
