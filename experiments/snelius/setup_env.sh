@@ -16,8 +16,9 @@ for m in $CDX_MODULES; do module load "$m"; done
 echo "loaded modules: ${LOADEDMODULES:-?}"
 which python nvcc || true
 
-if [ ! -d "$CDX_VENV" ]; then
-    python -m venv "$CDX_VENV"
+# a venv is complete only when the marker exists; a half-built one is rebuilt from scratch
+if [ ! -f "$CDX_VENV/.cdx_ready" ]; then
+    python -m venv --clear "$CDX_VENV"
 fi
 # shellcheck disable=SC1091
 source "$CDX_VENV/bin/activate"
@@ -46,4 +47,5 @@ pip install --no-build-isolation "causal-conv1d>=1.4.0" || echo "causal-conv1d o
 
 mkdir -p "$CDX_RESULTS" "$CDX_CACHE" "$DSRL_DATASET_DIR" "$CDX_ROOT/logs/slurm" "$CDX_ROOT/logs/runs"
 pip freeze > "$CDX_ROOT/experiments/pip-freeze-snelius.txt"
+touch "$CDX_VENV/.cdx_ready"
 echo "done. next: python experiments/snelius/check_env.py"

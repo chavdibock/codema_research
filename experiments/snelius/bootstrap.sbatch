@@ -11,7 +11,7 @@
 set -euo pipefail
 source "${CDX_ROOT:-$SLURM_SUBMIT_DIR}/experiments/snelius/env.sh"
 
-if [ ! -x "$CDX_VENV/bin/python" ]; then
+if [ ! -f "$CDX_VENV/.cdx_ready" ]; then
     echo "== venv missing: building it (setup_env.sh)"
     bash "$CDX_ROOT/experiments/snelius/setup_env.sh"
 fi

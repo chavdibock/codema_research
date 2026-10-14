@@ -79,7 +79,7 @@ if [ "$ACTION" = cancel ]; then
     echo "cancelling: $ids"; scancel $ids; exit 0
 fi
 
-HAVE_VENV=0; [ -x "$CDX_VENV/bin/python" ] && HAVE_VENV=1
+HAVE_VENV=0; [ -f "$CDX_VENV/.cdx_ready" ] && HAVE_VENV=1   # written by setup_env.sh when complete
 if [ "$HAVE_VENV" = 1 ]; then cdx_activate; fi
 
 if [ "$ACTION" = status ]; then
@@ -245,6 +245,7 @@ AFTER_ALL=""
 for id in "${MAIN_IDS[@]}" $PROF_ID $FID_ID "${E0_IDS[@]}"; do
     AFTER_ALL="${AFTER_ALL:+$AFTER_ALL,}afterany:$id"
 done
+AFTER_ALL="${AFTER_ALL:+$AFTER_ALL,}$AFTER_BOOT"; AFTER_ALL="${AFTER_ALL%,}"
 sub finalize ${AFTER_ALL:+--dependency=$AFTER_ALL} \
     --export=ALL,CDX_ROOT="$CDX_ROOT",P3="$([ $P3 = 1 ] && echo 1)",SKIP_MODELS="$SKIP_MODELS" \
     experiments/snelius/finalize.sbatch > /dev/null
