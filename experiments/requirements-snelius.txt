@@ -23,7 +23,8 @@ bullet-safety-gym==1.4.0
 gymnasium==0.28.1           # bullet-safety-gym 1.4.0 requires gymnasium~=0.28.1
 pybullet>=3.2.5
 pyrallis==0.3.1
-OApackage==2.7.6            # needs swig; its build failed locally, 2.7.20 works with numpy 1.26
+OApackage==2.7.20           # 2.7.6 does not build (needs numpy at build time); 2.7.20 builds
+                            # with scikit-build-core, same Pareto API, tested locally
 swig
 h5py>=3.8
 numba>=0.57
